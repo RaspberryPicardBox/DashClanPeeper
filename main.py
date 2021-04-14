@@ -8,9 +8,9 @@ import datetime
 import threading
 
 if __name__ == "__main__":
-    description = "Clan Currently Playing Bot"
+    description = "Dash Clan Peeper"
 
-    token = "token"
+    token = ""
 
     intents = discord.Intents.default()
     #intents.members = True
@@ -18,12 +18,12 @@ if __name__ == "__main__":
     bot = commands.Bot(command_prefix="!", description=description, intents=intents)
     client = discord.Client()
 
-    r = ""
-
     loadedtime = 0
+
+    r = ""
     owner = ""
-    channel = ""
     run = False
+    blacklist = []
 
 
     async def update(ctx, clan_names):
@@ -34,8 +34,8 @@ if __name__ == "__main__":
         for clan in clan_names:
             clans += clan + " "
 
-        embed = discord.Embed(title="Current {0} Players in Game".format(clans),
-                              description="Current players online...", colour=discord.Colour.red())
+        embed = discord.Embed(title="Current {0} players in game:".format(clans),
+                              description="--------------------", colour=discord.Colour.red())
         message = await ctx.send(embed=embed)
 
         while run:
@@ -43,26 +43,42 @@ if __name__ == "__main__":
             r = r.json()
             current = {}
             for server in r:
-                if len(r[server]) > 5:
+                if len(r[server]) > 6:
                     for player in r[server]['players']:
                         if player['tag'].lower() in clan_names:
-                            if server in current:
-                                current[server].append(player)
-                            else:
-                                current[server] = [player]
+                            if player['name'] not in blacklist:
+                                if server in current:
+                                    current[server].append(player)
+                                else:
+                                    current[server] = [player]
 
-            embed = discord.Embed(title="Current {0} Players in Game".format(clans),
-                                  description="Current players online...", colour=discord.Colour.blue())
+            embed = discord.Embed(title="Current {0} players in game:".format(clans),
+                                  description="--------------------", colour=discord.Colour.blue())
+
             for server in current.items():
                 players = ""
+                blue = ""
+                red = ""
 
                 for player in server[1]:
-                    players += "[" + player['tag'] + "] " + player['name'] + "\n"
+                    if player['team'] == 0:
+                        red += " :red_square: "
+                        red += "[" + player['tag'] + "] " + player['name'] + " \n"
+                    elif player['team'] == 1:
+                        blue += " :blue_square: "
+                        blue += "[" + player['tag'] + "] " + player['name'] + " \n"
+
+                players += red + blue
 
                 embed.add_field(name=server[0], value=players, inline=False)
 
+            embed.set_footer(text="Made possible by Zed's API")
+
             await message.edit(embed=embed)
             time.sleep(1)
+
+        await message.delete()
+        return
 
 
     @bot.event
@@ -90,19 +106,6 @@ if __name__ == "__main__":
         await ctx.send("Owner confirmed!", delete_after=2)
         owner = ctx.author.id
 
-
-    @bot.command()
-    async def here(ctx):
-        """Gives the bot a channel to work in."""
-        global channel
-        if ctx.author.id == owner:
-            await ctx.send("Confirmed! Bot will work here...", delete_after=2)
-            await ctx.message.delete()
-            channel = ctx.message.channel.id
-        else:
-            await ctx.send("Sorry, but you don't have the privileges to do that!")
-
-
     @bot.command()
     async def run(ctx, *clan_names):
         """Starts the bot searching for online clan members. Clan types should be inputted with spaces in-between."""
@@ -116,6 +119,26 @@ if __name__ == "__main__":
             run = True
             time.sleep(2)
             await update(ctx, clan_names)
+        else:
+            await ctx.send("Sorry, but you don't have the privileges to do that!")
+
+    @bot.command()
+    async def optout(ctx, name):
+        """Opts you out of the tracking whilst this instance of bot is active. NOTE: Does not prevent tracking
+        indefinitely. """
+        blacklist.append(name)
+        await ctx.message.delete()
+        await ctx.send("You have blacklisted {0} from the tracking of DashClanPeeper.".format(name), delete_after=2)
+        await ctx.send("Please note, in this current version, this does not eliminate the user from tracking forever, "
+                       "only whilst the current bot instance is running.", delete_after=5)
+
+    @bot.command()
+    async def optin(ctx, name):
+        """Opts somebody back into tracking, if you have the privileges."""
+        if ctx.author.id == owner:
+            blacklist.remove(name)
+            await ctx.message.delete()
+            await ctx.send("You have removed {0} from the blacklist of DashClanPeeper.".format(name), delete_after=2)
         else:
             await ctx.send("Sorry, but you don't have the privileges to do that!")
 
@@ -139,28 +162,14 @@ if __name__ == "__main__":
         else:
             await ctx.send("Sorry, but you don't have the privileges to do that!")
 
-
-    @bot.command()
-    async def restart(ctx):
-        """Restarts the bot, if you have the right."""
-        if ctx.author.id == 344911466195058699 or ctx.author.id == owner:
-            await ctx.send("Restarting the bot...")
-            print("Bot restart initiated!")
-            await bot.close()
-            print("Current bot closed...")
-            print("New instance being created!\n")
-            await os.system("python3 bot.py")
-        else:
-            await ctx.send("Sorry, but you don't have the privileges to do that!")
-
-
     @bot.command()
     async def stop(ctx):
         """Stops the bot, if you have the right."""
         if ctx.author.id == 344911466195058699 or ctx.author.id == owner:
-            await ctx.send("Shutting down...")
-            print("Bot shutting down...\n")  #
-            await bot.close()
+            global run
+            await ctx.send("Stopping", delete_after=2)
+            await ctx.message.delete()
+            run = False
         else:
             await ctx.send("Sorry, but you don't have the privileges to do that!")
 
