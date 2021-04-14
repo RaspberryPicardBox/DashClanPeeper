@@ -13,7 +13,6 @@ if __name__ == "__main__":
     token = ""
 
     intents = discord.Intents.default()
-    #intents.members = True
 
     bot = commands.Bot(command_prefix="!", description=description, intents=intents)
     client = discord.Client()
@@ -34,50 +33,89 @@ if __name__ == "__main__":
         for clan in clan_names:
             clans += clan + " "
 
-        embed = discord.Embed(title="Current {0} players in game:".format(clans),
-                              description="--------------------", colour=discord.Colour.red())
-        message = await ctx.send(embed=embed)
+        clanembed = discord.Embed(title="Currently online {0} players:".format(clans), colour=discord.Colour.blue())
+
+        message = await ctx.send(embed=clanembed)
 
         while run:
             r = requests.get("https://api.dashlist.info/fetch")
             r = r.json()
             current = {}
             for server in r:
+                player_num = 0
                 if len(r[server]) > 6:
                     for player in r[server]['players']:
+                        player_num += 1
                         if player['tag'].lower() in clan_names:
                             if player['name'] not in blacklist:
                                 if server in current:
                                     current[server].append(player)
                                 else:
                                     current[server] = [player]
+                            current[server].append(player_num)
 
-            embed = discord.Embed(title="Current {0} players in game:".format(clans),
-                                  description="--------------------", colour=discord.Colour.blue())
+            if len(current.items()) > 0:
 
-            for server in current.items():
-                players = ""
-                blue = ""
-                red = ""
+                clanembed = discord.Embed(title="Currently online {0} players:".format(clans),
+                                          colour=discord.Colour.blue())
 
-                for player in server[1]:
-                    if player['team'] == 0:
-                        red += " :red_square: "
-                        red += "[" + player['tag'] + "] " + player['name'] + " \n"
-                    elif player['team'] == 1:
-                        blue += " :blue_square: "
-                        blue += "[" + player['tag'] + "] " + player['name'] + " \n"
+                for server in current.items():
+                    players = ""
+                    blue = ""
+                    red = ""
+                    player_num = 0
 
-                players += red + blue
+                    for player in server[1]:
+                        if type(player) != int:
+                            if player['team'] == 0:
+                                red += " :red_square: "
+                                red += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 1:
+                                blue += " :blue_square: "
+                                blue += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 2:
+                                players += " :yellow_square: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 3:
+                                players += " :green_square: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 4:
+                                players += " :purple_square: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 5:
+                                players += " :orange_square: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 6:
+                                players += " :black_large_square: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 7:
+                                players += " :white_large_square: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 8:
+                                players += " :blue_circle: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 9:
+                                players += " :purple_circle: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            elif player['team'] == 10:
+                                players += " :black_square_button: "
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            else:
+                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                        else:
+                            player_num = player
 
-                embed.add_field(name=server[0], value=players, inline=False)
+                    players += red + blue
+                    name = str(server[0]) + " [{0}/10]".format(player_num)
+                    if len(name) > 0 and len(players) > 0:
+                        clanembed.add_field(name=name, value=players, inline=False)
+            else:
+                clanembed = discord.Embed(title="Currently online {0} players:".format(clans),
+                                          colour=discord.Colour.red())
+                clanembed.add_field(name="None Online", value = "No players are online currently...")
 
-            embed.set_footer(text="Made possible by Zed's API")
-
-            await message.edit(embed=embed)
+            await message.edit(embed=clanembed)
             time.sleep(1)
-
-        await message.delete()
         return
 
 
@@ -100,11 +138,15 @@ if __name__ == "__main__":
 
     @bot.command()
     async def owner(ctx):
-        """Sets the owner of the bot for this server. Owners can set the channel for use by the bot, start, and stop it."""
+        """Sets the owner of the bot for this server. Owners can set the channel for use by the bot, start,
+        and stop it. """
         global owner
-        await ctx.message.delete()
-        await ctx.send("Owner confirmed!", delete_after=2)
-        owner = ctx.author.id
+        if owner != "":
+            await ctx.message.delete()
+            await ctx.send("Owner confirmed!", delete_after=2)
+            owner = ctx.author.id
+        else:
+            await ctx.send("Sorry, but you don't have the privileges to do that!")
 
     @bot.command()
     async def run(ctx, *clan_names):
@@ -117,7 +159,6 @@ if __name__ == "__main__":
             await ctx.message.delete()
             await ctx.send("Running! Finding people of clans {0}".format(clan_names), delete_after=2)
             run = True
-            time.sleep(2)
             await update(ctx, clan_names)
         else:
             await ctx.send("Sorry, but you don't have the privileges to do that!")
