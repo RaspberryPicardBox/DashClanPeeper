@@ -35,6 +35,7 @@ if __name__ == "__main__":
 
         global r
 
+        clan_names = [clan.lower() for clan in clan_names]
         clanprint = ""
         for clan in clan_names:
             clanprint += " [" + clan.upper() + "]"
@@ -53,10 +54,11 @@ if __name__ == "__main__":
                 if len(r[server]) > 5:
                     for player in r[server]['players']:
                         if player['tag'].lower() in clan_names:
-                            if server not in current:
-                                current[server] = [player]
-                            else:
-                                current[server].append(player)
+                            if player['name'] not in blacklist:
+                                if server not in current:
+                                    current[server] = [player]
+                                else:
+                                    current[server].append(player)
                             current[server].append(len(r[server]['players']))
 
             if len(current.items()) > 0:
@@ -76,7 +78,7 @@ if __name__ == "__main__":
                     clanprint))
 
             clanembed.set_footer(text="Bot made by [DARK] RaspiBox. Made possible thanks to Zed's API.\nTime of last "
-                                      "update: {0}".format(datetime.datetime.now()))
+                                      "update: {0}".format(str(datetime.datetime.now())[:-7]))
             await message.edit(embed=clanembed)
             await asyncio.sleep(5)
 
@@ -119,10 +121,6 @@ if __name__ == "__main__":
         """Starts the bot searching for online clan members. Clan types should be inputted with spaces in-between."""
         if ctx.author.id == owner:
             global run
-            global active_threads
-            names = []
-            for name in clan_names:
-                names.append(name)
             await ctx.message.delete()
             await ctx.send("Running! Finding people of clans {0}".format(clan_names), delete_after=2)
             run = True
