@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 import time
@@ -5,7 +6,6 @@ import discord
 from discord.ext import commands
 import requests
 import datetime
-import threading
 
 if __name__ == "__main__":
     description = "Dash Clan Peeper"
@@ -24,98 +24,64 @@ if __name__ == "__main__":
     run = False
     blacklist = []
 
+    emojis = [" :red_square: ", " :blue_square: ", " :yellow_square: ", " :green_square: ", " :purple_square: ",
+              ":orange_square: ", " :black_large_square: ", " :white_large_square: ", " :blue_circle: ",
+              " :purple_circle: ", " :black_square_button: "]
+
 
     async def update(ctx, clan_names):
 
         print("Running update thread...")
-        global r
-        clans = ""
-        for clan in clan_names:
-            clans += clan + " "
 
-        clanembed = discord.Embed(title="Currently online {0} players:".format(clans), colour=discord.Colour.blue())
+        global r
+
+        clanprint = ""
+        for clan in clan_names:
+            clanprint += " [" + clan.upper() + "]"
+
+        clanembed = discord.Embed(title="Filtering by{0}".format(clanprint), colour=discord.Colour.red())
 
         message = await ctx.send(embed=clanembed)
 
         while run:
-            r = requests.get("https://api.dashlist.info/fetch")
-            r = r.json()
+            r = requests.get("https://api.dashlist.info/fetch").json()
+
             current = {}
+            clanembed = discord.Embed(title="Filtering by{0}".format(clanprint), colour=discord.Colour.blue())
+
             for server in r:
-                player_num = 0
-                if len(r[server]) > 6:
+                if len(r[server]) > 5:
                     for player in r[server]['players']:
-                        player_num += 1
                         if player['tag'].lower() in clan_names:
-                            if player['name'] not in blacklist:
-                                if server in current:
-                                    current[server].append(player)
-                                else:
-                                    current[server] = [player]
-                            current[server].append(player_num)
+                            if server not in current:
+                                current[server] = [player]
+                            else:
+                                current[server].append(player)
+                            current[server].append(len(r[server]['players']))
 
             if len(current.items()) > 0:
-
-                clanembed = discord.Embed(title="Currently online {0} players:".format(clans),
-                                          colour=discord.Colour.blue())
-
-                for server in current.items():
+                for info in current.items():
                     players = ""
-                    blue = ""
-                    red = ""
-                    player_num = 0
-
-                    for player in server[1]:
+                    player_num = ""
+                    for player in info[1]:
                         if type(player) != int:
-                            if player['team'] == 0:
-                                red += " :red_square: "
-                                red += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 1:
-                                blue += " :blue_square: "
-                                blue += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 2:
-                                players += " :yellow_square: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 3:
-                                players += " :green_square: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 4:
-                                players += " :purple_square: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 5:
-                                players += " :orange_square: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 6:
-                                players += " :black_large_square: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 7:
-                                players += " :white_large_square: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 8:
-                                players += " :blue_circle: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 9:
-                                players += " :purple_circle: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            elif player['team'] == 10:
-                                players += " :black_square_button: "
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
-                            else:
-                                players += "[" + player['tag'] + "] " + player['name'] + " \n"
+                            players += "{0} [{1}] {2}\n".format(emojis[player['team']], player['tag'], player['name'])
                         else:
                             player_num = player
 
-                    players += red + blue
-                    name = str(server[0]) + " [{0}/10]".format(player_num)
-                    if len(name) > 0 and len(players) > 0:
-                        clanembed.add_field(name=name, value=players, inline=False)
+                    clanembed.add_field(name=info[0] + " [{0}/10]".format(player_num), value=players)
             else:
-                clanembed = discord.Embed(title="Currently online {0} players:".format(clans),
-                                          colour=discord.Colour.red())
-                clanembed.add_field(name="None Online", value = "No players are online currently...")
+                clanembed.colour = discord.Colour.red()
+                clanembed.add_field(name="No players online...", value="No players online from clans{0}".format(
+                    clanprint))
 
+            clanembed.set_footer(text="Bot made by [DARK] RaspiBox. Made possible thanks to Zed's API.\nTime of last "
+                                      "update: {0}".format(datetime.datetime.now()))
             await message.edit(embed=clanembed)
-            time.sleep(1)
+            await asyncio.sleep(5)
+
+        print("Update thread stopping...")
+        await message.delete()
         return
 
 
@@ -153,6 +119,7 @@ if __name__ == "__main__":
         """Starts the bot searching for online clan members. Clan types should be inputted with spaces in-between."""
         if ctx.author.id == owner:
             global run
+            global active_threads
             names = []
             for name in clan_names:
                 names.append(name)
