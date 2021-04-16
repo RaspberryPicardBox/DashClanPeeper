@@ -142,6 +142,12 @@ if __name__ == "__main__":
     async def on_ready():
         global loadedTime
         global r
+        try:
+            get_json("blacklist_global.json")
+        except FileNotFoundError:
+            f = open("blacklist_global.json", "a")
+            f.write("{}")
+            f.close()
         loadedTime = datetime.datetime.now()
         print("Logged in as: " + bot.user.name + " " + str(bot.user.id))
         print("Time loaded: {0}".format(str(loadedTime)[:-7]))
