@@ -111,7 +111,7 @@ if __name__ == "__main__":
         f.close()
 
 
-    def update_blacklist(ctx, user, remove):
+    def update_blacklist(user, remove):
         global blacklist
 
         contents = get_json("blacklist_global.json")
@@ -161,11 +161,10 @@ if __name__ == "__main__":
     @bot.command()
     async def lobby(ctx, name):
         """Returns a list of players in whatever server the named player is in"""
+        lobbyembed = discord.Embed(title="Server including {0}".format(name), colour=discord.Colour.red())
         try:
             r = requests.get("https://api.dashlist.info/fetch").json()
             current = {}
-
-            lobbyembed = discord.Embed(title="Server including {0}".format(name), colour=discord.Colour.red())
 
             for server in r:
                 if "players" in r[server]:
@@ -196,7 +195,7 @@ if __name__ == "__main__":
                                                                           player['name'])
                                 else:
                                     players += "{0} **{1}** ***{2}***\n".format(emojis[player['team']], player['tag'],
-                                                                          player['name'])
+                                                                                player['name'])
                             else:
                                 if player['name'] != name:
                                     players += "{0} {1} \n".format(emojis[player['team']], player['name'])
@@ -226,7 +225,7 @@ if __name__ == "__main__":
         """Opts you out of the tracking whilst this instance of bot is active. NOTE: Does not prevent tracking
         indefinitely. """
         await ctx.message.delete()
-        accomplished = update_blacklist(ctx, name, True)
+        accomplished = update_blacklist(name, True)
         if accomplished:
             await ctx.send("You have blacklisted {0} from the tracking of DashClanPeeper.".format(name), delete_after=5)
         else:
@@ -238,7 +237,7 @@ if __name__ == "__main__":
     async def optin(ctx, name):
         """Opts somebody back into tracking, if you have the privileges."""
         await ctx.message.delete()
-        accomplished = update_blacklist(ctx, name, False)
+        accomplished = update_blacklist(name, False)
         if accomplished:
             await ctx.send("You have removed {0} from the blacklist of DashClanPeeper.".format(name),
                            delete_after=5)
@@ -297,8 +296,8 @@ if __name__ == "__main__":
         if isinstance(error, MissingPermissions):
             await ctx.send("Sorry, but you do not have the permissions to do that.", delete_after=5)
         elif isinstance(error, MissingRequiredArgument):
-            await ctx.send("You have neglected to add in an argument after the command. Please use !help.", delete_after=5)
-
+            await ctx.send("You have neglected to add in an argument after the command. Please use !help.",
+                           delete_after=5)
 
 
     bot.run(token)
