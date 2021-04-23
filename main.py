@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import json
+import time
 from datetime import timezone
 
 import discord
@@ -23,6 +24,7 @@ if __name__ == "__main__":
     blacklist = []
 
     servers = {}
+    tasks = {}
 
     emojis = [" :red_square: ", " :blue_square: ", " :yellow_square: ", " :green_square: ", " :purple_square: ",
               ":orange_square: ", " :black_large_square: ", " :white_large_square: ", " :blue_circle: ",
@@ -30,71 +32,75 @@ if __name__ == "__main__":
 
 
     async def update(ctx, clan_names):
-        clan_names = [clan.lower() for clan in clan_names]
-        clanprint = ""
-        for clan in clan_names:
-            clanprint += " [" + clan.upper() + "]"
-
-        clanembed = discord.Embed(title="Filtering by{0}".format(clanprint), colour=discord.Colour.red())
-
-        message = await ctx.send(embed=clanembed)
-
         try:
-            while servers[ctx.message.guild.id][0]:
-                try:
-                    r = requests.get("https://api.dashlist.info/fetch").json()
+            clan_names = [clan.lower() for clan in clan_names]
+            clanprint = ""
+            for clan in clan_names:
+                clanprint += " [" + clan.upper() + "]"
 
-                    current = {}
-                    clanembed = discord.Embed(title="Filtering by{0}".format(clanprint), colour=discord.Colour.blue())
+            clanembed = discord.Embed(title="Filtering by{0}".format(clanprint), colour=discord.Colour.red())
 
-                    for server in r:
-                        if "players" in r[server]:
-                            for player in r[server]['players']:
-                                if player['tag'].lower() in clan_names:
-                                    if player['name'] not in blacklist:
-                                        if server not in current:
-                                            current[server] = [player]
-                                        else:
-                                            current[server].append(player)
-                                    elif player['name'] in blacklist:
+            message = await ctx.send(embed=clanembed)
+
+            try:
+                while servers[ctx.message.guild.id][0]:
+                    try:
+                        r = requests.get("https://api.dashlist.info/fetch").json()
+
+                        current = {}
+                        clanembed = discord.Embed(title="Filtering by{0}".format(clanprint), colour=discord.Colour.blue())
+
+                        for server in r:
+                            if "players" in r[server]:
+                                for player in r[server]['players']:
+                                    if player['tag'].lower() in clan_names:
+                                        if player['name'] not in blacklist:
+                                            if server not in current:
+                                                current[server] = [player]
+                                            else:
+                                                current[server].append(player)
+                                        elif player['name'] in blacklist:
+                                            if server in current:
+                                                if player['name'] in current[server]:
+                                                    current[server].remove(player['name'])
                                         if server in current:
-                                            if player['name'] in current[server]:
-                                                current[server].remove(player['name'])
-                                    if server in current:
-                                        current[server].append(len(r[server]['players']))
+                                            current[server].append(len(r[server]['players']))
 
-                    if len(current.items()) > 0:
-                        for info in current.items():
-                            players = ""
-                            player_num = ""
-                            for player in info[1]:
-                                if type(player) != int:
-                                    players += "{0} **{1}** {2}\n".format(emojis[player['team']], player['tag'],
-                                                                          player['name'])
-                                else:
-                                    player_num = player
+                        if len(current.items()) > 0:
+                            for info in current.items():
+                                players = ""
+                                player_num = ""
+                                for player in info[1]:
+                                    if type(player) != int:
+                                        players += "{0} **{1}** {2}\n".format(emojis[player['team']], player['tag'],
+                                                                              player['name'])
+                                    else:
+                                        player_num = player
 
-                            clanembed.add_field(name=info[0] + " [{0}/10]".format(player_num), value=players)
-                    else:
+                                clanembed.add_field(name=info[0] + " [{0}/10]".format(player_num), value=players)
+                        else:
+                            clanembed.colour = discord.Colour.red()
+                            clanembed.add_field(name="No players online...", value="No players online from clans{0}".format(
+                                clanprint))
+
+                        clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
+                                                  "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
+                        await message.edit(embed=clanembed)
+                        await asyncio.sleep(5)
+                    except ValueError:
+                        clanembed.description = "***ERROR:*** Error retrieving Dash List data..."
                         clanembed.colour = discord.Colour.red()
-                        clanembed.add_field(name="No players online...", value="No players online from clans{0}".format(
-                            clanprint))
+                        await message.edit(embed=clanembed)
+                        await asyncio.sleep(5)
+                        pass
+            except IndexError:
+                pass
 
-                    clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
-                                              "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
-                    await message.edit(embed=clanembed)
-                    await asyncio.sleep(5)
-                except ValueError:
-                    clanembed.description = "***ERROR:*** Error retrieving Dash List data..."
-                    clanembed.colour = discord.Colour.red()
-                    await message.edit(embed=clanembed)
-                    await asyncio.sleep(5)
-                    pass
-        except IndexError:
-            pass
+            await message.delete()
+            return
 
-        await message.delete()
-        return
+        except:
+            print("Unknown Exception in update thread..")
 
 
     def get_json(filename):
@@ -129,6 +135,10 @@ if __name__ == "__main__":
         return True
 
 
+    def task_creator(ctx, clan_names):
+        asyncio.shield(update(ctx, clan_names))
+
+
     @bot.event
     async def on_ready():
         global loadedTime
@@ -152,7 +162,8 @@ if __name__ == "__main__":
             await ctx.message.delete()
             await ctx.send("Running! Finding people of clans {0}".format(clan_names), delete_after=2)
             servers[ctx.message.guild.id] = [True, clan_names]
-            await update(ctx, clan_names)
+            task_creator(ctx, clan_names)
+            print(asyncio.all_tasks())
         else:
             await ctx.send("You have neglected to add in an argument after the command. Please use !help.",
                            delete_after=5)
