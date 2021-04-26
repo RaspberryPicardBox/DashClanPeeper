@@ -1,7 +1,6 @@
 import asyncio
 import datetime
 import json
-import time
 from datetime import timezone
 
 import discord
@@ -24,7 +23,6 @@ if __name__ == "__main__":
     blacklist = []
 
     servers = {}
-    tasks = {}
 
     emojis = [" :red_square: ", " :blue_square: ", " :yellow_square: ", " :green_square: ", " :purple_square: ",
               ":orange_square: ", " :black_large_square: ", " :white_large_square: ", " :blue_circle: ",
@@ -43,7 +41,7 @@ if __name__ == "__main__":
             message = await ctx.send(embed=clanembed)
 
             try:
-                while servers[ctx.message.guild.id][0]:
+                while True:
                     try:
                         r = requests.get("https://api.dashlist.info/fetch").json()
 
@@ -94,7 +92,7 @@ if __name__ == "__main__":
                         await asyncio.sleep(5)
                         pass
             except IndexError:
-                pass
+                print("Unable to retrieve API data...")
 
             await message.delete()
             return
@@ -103,24 +101,24 @@ if __name__ == "__main__":
             print("Unknown Exception in update thread..")
 
 
-    def get_json(filename):
+    async def get_json(filename):
         with open("{0}".format(filename)) as f:
             contents = json.load(f)
         f.close()
         return contents
 
 
-    def set_json(filename, contents):
+    async def set_json(filename, contents):
         with open("{0}".format(filename), "a") as f:
             f.truncate(0)
             f.write(json.dumps(contents))
         f.close()
 
 
-    def update_blacklist(user, remove):
+    async def update_blacklist(user, remove):
         global blacklist
 
-        contents = get_json("blacklist_global.json")
+        contents = await get_json("blacklist_global.json")
 
         if remove:
             if user not in contents:
@@ -129,7 +127,7 @@ if __name__ == "__main__":
             if user in contents:
                 contents.remove(user)
 
-        set_json("blacklist_global.json", contents)
+        await set_json("blacklist_global.json", contents)
 
         blacklist = contents
         return True
@@ -143,10 +141,16 @@ if __name__ == "__main__":
     async def on_ready():
         global loadedTime
         try:
-            get_json("blacklist_global.json")
+            await get_json("blacklist_global.json")
         except FileNotFoundError:
             f = open("blacklist_global.json", "a")
             f.write("[]")
+            f.close()
+        try:
+            await get_json("servers.json")
+        except FileNotFoundError:
+            f = open("servers.json", "a")
+            f.write("{}")
             f.close()
         loadedTime = datetime.datetime.now()
         print("Logged in as: " + bot.user.name + " " + str(bot.user.id))
@@ -158,12 +162,22 @@ if __name__ == "__main__":
     @has_permissions(manage_messages=True)
     async def run(ctx, *clan_names):
         """Starts the bot searching for online clan members. Clan types should be inputted with spaces in-between."""
+        global servers
         if len(clan_names) > 0:
             await ctx.message.delete()
             await ctx.send("Running! Finding people of clans {0}".format(clan_names), delete_after=2)
-            servers[ctx.message.guild.id] = [True, clan_names]
+            content = await get_json("servers.json")
+            servers = content
+            print(servers)
+            if ctx.message.guild.id not in servers.keys():
+                servers[ctx.message.guild.id] = {}
+            if ctx.message.channel.id not in servers[ctx.message.guild.id].keys():
+                servers[ctx.message.guild.id][ctx.message.channel.id] = {}
+            if ctx.message.id not in servers[ctx.message.guild.id][ctx.message.channel.id].keys():
+                servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id] = [True, clan_names]
+            print(servers)
+            await set_json("servers.json", servers)
             task_creator(ctx, clan_names)
-            print(asyncio.all_tasks())
         else:
             await ctx.send("You have neglected to add in an argument after the command. Please use !help.",
                            delete_after=5)
@@ -222,8 +236,8 @@ if __name__ == "__main__":
                 lobbyembed.add_field(name="No players online...", value="No players online named {0}".format(
                     name))
 
-            lobbyembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
-                                       "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
+            lobbyembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of retrieval: "
+                                       " {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
         except ValueError:
             lobbyembed.description = "***ERROR:*** Error retrieving Dash List data..."
             lobbyembed.colour = discord.Colour.red()
@@ -261,7 +275,6 @@ if __name__ == "__main__":
     async def ping(ctx):
         """Returns the latency of this bot!"""
         await ctx.send("My current response time is: {0}ms".format(round(bot.latency, 1)))
-        await ctx.send(servers)
 
 
     @bot.command()
@@ -276,10 +289,23 @@ if __name__ == "__main__":
     @has_permissions(manage_messages=True)
     async def stop(ctx):
         """Stops the bot tracking, if you have the right."""
-        servers[ctx.message.guild.id][0] = False
-        servers[ctx.message.guild.id][1] = ""
+        global servers
         await ctx.send("Stopping", delete_after=2)
         await ctx.message.delete()
+        content = await get_json("servers.json")
+        servers = content
+        print(servers)
+        for server in servers:
+            if str(ctx.message.guild.id) == server:
+                for channel in servers[server]:
+                    if str(ctx.message.channel.id) == channel:
+                        for message in servers[server][channel]:
+                            for attributes in servers[server][channel][message]:
+                                if attributes == True:
+                                    #servers[server][channel][message][0] = False
+                                    print(servers[server][channel][message])
+        print(servers)
+        await set_json("servers.json", servers)
 
 
     @bot.command()
@@ -289,9 +315,9 @@ if __name__ == "__main__":
         if ctx.author.id == 344911466195058699:
             global servers
             global blacklist
-            servers = []
+            servers = {}
             blacklist = []
-            set_json("blacklist_global.json", [])
+            await set_json("blacklist_global.json", [])
             await ctx.send("Resetting entire bot logs!", delete_after=2)
             await ctx.message.delete()
         else:
