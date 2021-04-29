@@ -40,9 +40,17 @@ if __name__ == "__main__":
 
             message = await ctx.send(embed=clanembed)
 
+            cont = True
+
             try:
-                while True:
+                while cont:
                     try:
+
+                        if servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id][0] == "True":
+                            cont = True
+                        else:
+                            cont = False
+
                         r = requests.get("https://api.dashlist.info/fetch").json()
 
                         current = {}
@@ -168,14 +176,12 @@ if __name__ == "__main__":
             await ctx.send("Running! Finding people of clans {0}".format(clan_names), delete_after=2)
             content = await get_json("servers.json")
             servers = content
-            print(servers)
             if ctx.message.guild.id not in servers.keys():
                 servers[ctx.message.guild.id] = {}
             if ctx.message.channel.id not in servers[ctx.message.guild.id].keys():
                 servers[ctx.message.guild.id][ctx.message.channel.id] = {}
             if ctx.message.id not in servers[ctx.message.guild.id][ctx.message.channel.id].keys():
                 servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id] = [True, clan_names]
-            print(servers)
             await set_json("servers.json", servers)
             task_creator(ctx, clan_names)
         else:
@@ -293,18 +299,6 @@ if __name__ == "__main__":
         await ctx.send("Stopping", delete_after=2)
         await ctx.message.delete()
         content = await get_json("servers.json")
-        servers = content
-        print(servers)
-        for server in servers:
-            if str(ctx.message.guild.id) == server:
-                for channel in servers[server]:
-                    if str(ctx.message.channel.id) == channel:
-                        for message in servers[server][channel]:
-                            for attributes in servers[server][channel][message]:
-                                if attributes == True:
-                                    #servers[server][channel][message][0] = False
-                                    print(servers[server][channel][message])
-        print(servers)
         await set_json("servers.json", servers)
 
 
@@ -318,6 +312,7 @@ if __name__ == "__main__":
             servers = {}
             blacklist = []
             await set_json("blacklist_global.json", [])
+            await set_json("servers.json", {})
             await ctx.send("Resetting entire bot logs!", delete_after=2)
             await ctx.message.delete()
         else:
