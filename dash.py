@@ -178,5 +178,5 @@ if __name__ == "__main__":
             average = sum(levels)/len(levels)
             print("Average level: {}".format(average))
             print("\n")
-        else:
-            print("API Unavailable")
+    else:
+        print("API Unavailable")
