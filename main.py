@@ -61,9 +61,11 @@ if __name__ == "__main__":
         return True
 
 
-    async def update(ctx, clan_names):
+    async def update(guild_id, channel_id, message_id, message=None):
         cont = True
         current_tags = []
+
+        clan_names = servers[guild_id][channel_id][message_id][1]
 
         clan_names = [clan.lower() for clan in clan_names]
         clanprint = ""
@@ -72,47 +74,51 @@ if __name__ == "__main__":
 
         clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
 
-        message = await ctx.send(embed=clanembed)
+        try:
+            while servers[guild_id][channel_id][message_id][0]:
+                clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
 
-        while servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id][0]:
-            clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
+                try:
+                    current_tags = dash.get_server_player_by_tag(clan_names)
+                    clanembed.colour = discord.Colour.blue()
+                except KeyError:
+                    cont = False
+                    clanembed.colour = discord.Colour.red()
 
-            try:
-                current_tags = dash.get_server_player_by_tag(clan_names)
-                clanembed.colour = discord.Colour.blue()
-            except KeyError:
-                cont = False
-                clanembed.colour = discord.Colour.red()
-
-            if cont:
-                for server in current_tags:
-                    levels = []
-                    players = current_tags[server]
-                    tag_players = ""
-                    non_tag_players = ""
-                    for player in players:
-                        tag_players += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
-                        levels.append(player.level)
-                    for player in server.players:
-                        if player not in players:
-                            non_tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
+                if cont:
+                    for server in current_tags:
+                        levels = []
+                        players = current_tags[server]
+                        tag_players = ""
+                        non_tag_players = ""
+                        for player in players:
+                            tag_players += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
                             levels.append(player.level)
-                    average = round(sum(levels) / len(levels))
-                    clanembed.add_field(
-                        name="{} [{}/10] *Average Level: {}*".format(server.name, len(server.players), average),
-                        value="{0} {1}".format(tag_players, non_tag_players))
+                        for player in server.players:
+                            if player not in players:
+                                non_tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
+                                levels.append(player.level)
+                        average = round(sum(levels) / len(levels))
+                        clanembed.add_field(
+                            name="{} [{}/10] *Average Level: {}*".format(server.name, len(server.players), average),
+                            value="{0} {1}".format(tag_players, non_tag_players))
 
-                clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
-                                          "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
+                    clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
+                                              "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
 
-                await message.edit(embed=clanembed)
-                await asyncio.sleep(5)
+                    await message.edit(embed=clanembed, content=None)
+                    await asyncio.sleep(5)
 
-            else:
-                clanembed.add_field(name="Unable to get data from Zed's API!", value="Please contact RaspiBox for "
-                                                                                      "assistance.")
-                await message.edit(embed=clanembed)
-                return
+                else:
+                    clanembed.add_field(name="Unable to get data from Zed's API, or bot has been reset!",
+                                        value="Please contact RaspiBox for assistance.")
+                    await message.edit(embed=clanembed)
+                    return
+        except KeyError:
+            clanembed.colour = discord.Colour.red()
+            clanembed.add_field(name="Bot has been reset!", value="Please contact RaspiBox for assistance.")
+            await message.edit(embed=clanembed)
+            return
 
         await message.delete()
         return
@@ -121,20 +127,29 @@ if __name__ == "__main__":
     @bot.event
     async def on_ready():
         global loadedTime
+        global servers
         try:
             await get_json("blacklist_global.json")
+            print("Found blacklist...\n")
         except FileNotFoundError:
             f = open("blacklist_global.json", "a")
             f.write("[]")
             f.close()
+            print("Did not find blacklist, creating new...\n")
         try:
-            await get_json("servers.json")
+            content = await get_json("servers.json")
+            for server in content:
+                for channel in content[str(server)]:
+                    for message in content[server][channel]:
+                        servers[int(server)] = {int(channel): {int(message): [content[server][channel][message]]}}
+            print("Found server list...\n")
         except FileNotFoundError:
             f = open("servers.json", "a")
             f.write("{}")
             f.close()
+            print("Did not find server list, creating new...\n")
         if not dash.update():
-            print("WARNING: CANNOT ACCESS ZED'S API")
+            print("WARNING: CANNOT ACCESS ZED'S API\n")
         loadedTime = datetime.datetime.now()
         print("Logged in as: " + bot.user.name + " " + str(bot.user.id))
         print("Time loaded: {0}".format(str(loadedTime)[:-7]))
@@ -150,6 +165,7 @@ if __name__ == "__main__":
         await ctx.message.delete()
         if len(clan_names) > 0:
             await ctx.send("Tracking clans: {}".format(clan_names), delete_after=2)
+            message = await ctx.send("Please wait...")
 
             try:
                 servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id] = [True, clan_names]
@@ -159,7 +175,8 @@ if __name__ == "__main__":
                 except KeyError:
                     servers[ctx.message.guild.id] = {ctx.message.channel.id: {ctx.message.id: [True, clan_names]}}
 
-            client.loop.create_task(update(ctx, clan_names))
+            await set_json("servers.json", servers)
+            client.loop.create_task(update(ctx.message.guild.id, ctx.message.channel.id, ctx.message.id, message))
         else:
             await ctx.send("Sorry, but you must input a clan name to be tracked!", delete_after=5)
 
