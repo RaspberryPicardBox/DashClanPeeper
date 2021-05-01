@@ -4,9 +4,9 @@ import json
 from datetime import timezone
 
 import discord
-import requests
 from discord.ext import commands
 from discord.ext.commands import has_permissions, MissingPermissions, MissingRequiredArgument
+import dash
 
 if __name__ == "__main__":
     description = "Dash Clan Peeper"
@@ -27,86 +27,6 @@ if __name__ == "__main__":
     emojis = [" :red_square: ", " :blue_square: ", " :yellow_square: ", " :green_square: ", " :purple_square: ",
               ":orange_square: ", " :black_large_square: ", " :white_large_square: ", " :blue_circle: ",
               " :purple_circle: ", " :black_square_button: "]  # Thank you for the idea Titan1315
-
-
-    async def update(ctx, clan_names):
-        try:
-            clan_names = [clan.lower() for clan in clan_names]
-            clanprint = ""
-            for clan in clan_names:
-                clanprint += " [" + clan.upper() + "]"
-
-            clanembed = discord.Embed(title="Filtering by{0}".format(clanprint), colour=discord.Colour.red())
-
-            message = await ctx.send(embed=clanembed)
-
-            cont = True
-
-            try:
-                while cont:
-                    try:
-
-                        if servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id][0] == "True":
-                            cont = True
-                        else:
-                            cont = False
-
-                        r = requests.get("https://api.dashlist.info/fetch").json()
-
-                        current = {}
-                        clanembed = discord.Embed(title="Filtering by{0}".format(clanprint), colour=discord.Colour.blue())
-
-                        for server in r:
-                            if "players" in r[server]:
-                                for player in r[server]['players']:
-                                    if player['tag'].lower() in clan_names:
-                                        if player['name'] not in blacklist:
-                                            if server not in current:
-                                                current[server] = [player]
-                                            else:
-                                                current[server].append(player)
-                                        elif player['name'] in blacklist:
-                                            if server in current:
-                                                if player['name'] in current[server]:
-                                                    current[server].remove(player['name'])
-                                        if server in current:
-                                            current[server].append(len(r[server]['players']))
-
-                        if len(current.items()) > 0:
-                            for info in current.items():
-                                players = ""
-                                player_num = ""
-                                for player in info[1]:
-                                    if type(player) != int:
-                                        players += "{0} **{1}** {2}\n".format(emojis[player['team']], player['tag'],
-                                                                              player['name'])
-                                    else:
-                                        player_num = player
-
-                                clanembed.add_field(name=info[0] + " [{0}/10]".format(player_num), value=players)
-                        else:
-                            clanembed.colour = discord.Colour.red()
-                            clanembed.add_field(name="No players online...", value="No players online from clans{0}".format(
-                                clanprint))
-
-                        clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
-                                                  "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
-                        await message.edit(embed=clanembed)
-                        await asyncio.sleep(5)
-                    except ValueError:
-                        clanembed.description = "***ERROR:*** Error retrieving Dash List data..."
-                        clanembed.colour = discord.Colour.red()
-                        await message.edit(embed=clanembed)
-                        await asyncio.sleep(5)
-                        pass
-            except IndexError:
-                print("Unable to retrieve API data...")
-
-            await message.delete()
-            return
-
-        except:
-            print("Unknown Exception in update thread..")
 
 
     async def get_json(filename):
@@ -141,8 +61,61 @@ if __name__ == "__main__":
         return True
 
 
-    def task_creator(ctx, clan_names):
-        asyncio.shield(update(ctx, clan_names))
+    async def update(ctx, clan_names):
+        cont = True
+        current_tags = []
+
+        clan_names = [clan.lower() for clan in clan_names]
+        clanprint = ""
+        for clan in clan_names:
+            clanprint += " [" + clan.upper() + "]"
+
+        clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
+
+        message = await ctx.send(embed=clanembed)
+
+        while servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id][0]:
+            clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
+
+            try:
+                current_tags = dash.get_server_player_by_tag(clan_names)
+                clanembed.colour = discord.Colour.blue()
+            except KeyError:
+                cont = False
+                clanembed.colour = discord.Colour.red()
+
+            if cont:
+                for server in current_tags:
+                    levels = []
+                    players = current_tags[server]
+                    tag_players = ""
+                    non_tag_players = ""
+                    for player in players:
+                        tag_players += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
+                        levels.append(player.level)
+                    for player in server.players:
+                        if player not in players:
+                            non_tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
+                            levels.append(player.level)
+                    average = round(sum(levels) / len(levels))
+                    clanembed.add_field(
+                        name="{} [{}/10] *Average Level: {}*".format(server.name, len(server.players), average),
+                        value="{0} {1}".format(tag_players, non_tag_players))
+
+                clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
+                                          "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
+
+                await message.edit(embed=clanembed)
+                await asyncio.sleep(5)
+
+            else:
+                clanembed.add_field(name="Unable to get data from Zed's API!", value="Please contact RaspiBox for "
+                                                                                      "assistance.")
+                await message.edit(embed=clanembed)
+                return
+
+        await message.delete()
+        return
 
 
     @bot.event
@@ -160,6 +133,8 @@ if __name__ == "__main__":
             f = open("servers.json", "a")
             f.write("{}")
             f.close()
+        if not dash.update():
+            print("WARNING: CANNOT ACCESS ZED'S API")
         loadedTime = datetime.datetime.now()
         print("Logged in as: " + bot.user.name + " " + str(bot.user.id))
         print("Time loaded: {0}".format(str(loadedTime)[:-7]))
@@ -171,90 +146,90 @@ if __name__ == "__main__":
     async def run(ctx, *clan_names):
         """Starts the bot searching for online clan members. Clan types should be inputted with spaces in-between."""
         global servers
+
+        await ctx.message.delete()
         if len(clan_names) > 0:
-            await ctx.message.delete()
-            await ctx.send("Running! Finding people of clans {0}".format(clan_names), delete_after=2)
-            content = await get_json("servers.json")
-            servers = content
-            if ctx.message.guild.id not in servers.keys():
-                servers[ctx.message.guild.id] = {}
-            if ctx.message.channel.id not in servers[ctx.message.guild.id].keys():
-                servers[ctx.message.guild.id][ctx.message.channel.id] = {}
-            if ctx.message.id not in servers[ctx.message.guild.id][ctx.message.channel.id].keys():
+            await ctx.send("Tracking clans: {}".format(clan_names), delete_after=2)
+
+            try:
                 servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id] = [True, clan_names]
-            await set_json("servers.json", servers)
-            task_creator(ctx, clan_names)
+            except KeyError:
+                try:
+                    servers[ctx.message.guild.id][ctx.message.channel.id] = {ctx.message.id: [True, clan_names]}
+                except KeyError:
+                    servers[ctx.message.guild.id] = {ctx.message.channel.id: {ctx.message.id: [True, clan_names]}}
+
+            client.loop.create_task(update(ctx, clan_names))
         else:
-            await ctx.send("You have neglected to add in an argument after the command. Please use !help.",
+            await ctx.send("Sorry, but you must input a clan name to be tracked!", delete_after=5)
+
+
+    @bot.command()
+    @has_permissions(manage_messages=True)
+    async def stop(ctx):
+        """Stops the bot tracking in the current channel, if you have the right."""
+        global servers
+
+        await ctx.message.delete()
+        await ctx.send("Stopping tracking in channel...", delete_after=2)
+
+        try:
+            for message in servers[ctx.message.guild.id][ctx.message.channel.id]:
+                servers[ctx.message.guild.id][ctx.message.channel.id][message][0] = False
+        except KeyError:
+            await ctx.send("Sorry, but it looks like there aren't any clans currently being tracked in this channel!",
                            delete_after=5)
 
 
     @bot.command()
     async def lobby(ctx, name):
         """Returns a list of players in whatever server the named player is in"""
-        lobbyembed = discord.Embed(title="Server including {0}".format(name), colour=discord.Colour.red())
+        name_embed = discord.Embed(title="Finding player {}".format(name))
+
+        message = await ctx.send(embed=name_embed)
+
+        cont = True
+        current_name = []
+
         try:
-            r = requests.get("https://api.dashlist.info/fetch").json()
-            current = {}
+            current_name = dash.get_server_player_by_name(name)
+            name_embed.colour = discord.Colour.blue()
+        except KeyError:
+            cont = False
+            name_embed.colour = discord.Colour.red()
 
-            for server in r:
-                if "players" in r[server]:
-                    for user in r[server]['players']:
-                        if name.lower() in user['name'].lower():
-                            for player in r[server]['players']:
-                                if player['name'] not in blacklist:
-                                    if server not in current:
-                                        current[server] = [player]
-                                    else:
-                                        current[server].append(player)
-                                elif player['name'] in blacklist:
-                                    if server in current:
-                                        if player['name'] in current[server]:
-                                            current[server].remove(player['name'])
-                                if server in current:
-                                    current[server].append(len(r[server]['players']))
+        if cont:
+            for server in current_name:
+                levels = []
+                players = current_name[server]
+                tag_players = ""
+                non_tag_players = ""
+                for player in players:
+                    tag_players += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
+                    levels.append(player.level)
+                for player in server.players:
+                    if player not in players:
+                        non_tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
+                        levels.append(player.level)
+                average = round(sum(levels) / len(levels))
+                name_embed.add_field(
+                    name="{} [{}/10] *Average Level: {}*".format(server.name, len(server.players), average),
+                    value="{0} {1}".format(tag_players, non_tag_players))
 
-            if len(current.items()) > 0:
-                for info in current.items():
-                    players = ""
-                    player_num = ""
-                    for player in info[1]:
-                        if type(player) != int:
-                            if player['tag']:
-                                if player['name'] != name:
-                                    players += "{0} **{1}** {2}\n".format(emojis[player['team']], player['tag'],
-                                                                          player['name'])
-                                else:
-                                    players += "{0} **{1}** ***{2}***\n".format(emojis[player['team']], player['tag'],
-                                                                                player['name'])
-                            else:
-                                if player['name'] != name:
-                                    players += "{0} {1} \n".format(emojis[player['team']], player['name'])
-                                else:
-                                    players += "{0} ***{1}*** \n".format(emojis[player['team']], player['name'])
-                        else:
-                            player_num = player
+            name_embed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of "
+                                       "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
 
-                    lobbyembed.add_field(name=info[0] + " [{0}/10]".format(player_num), value=players)
-                    lobbyembed.colour = discord.Colour.blue()
-            else:
-                lobbyembed.colour = discord.Colour.red()
-                lobbyembed.add_field(name="No players online...", value="No players online named {0}".format(
-                    name))
-
-            lobbyembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of retrieval: "
-                                       " {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
-        except ValueError:
-            lobbyembed.description = "***ERROR:*** Error retrieving Dash List data..."
-            lobbyembed.colour = discord.Colour.red()
-
-        await ctx.send(embed=lobbyembed)
+            await message.edit(embed=name_embed)
+        else:
+            name_embed.add_field(name="Unable to get data from Zed's API!", value="Please contact RaspiBox for "
+                                                                                  "assistance.")
+            await message.edit(embed=name_embed)
 
 
     @bot.command()
     async def optout(ctx, name):
-        """Opts you out of the tracking whilst this instance of bot is active. NOTE: Does not prevent tracking
-        indefinitely. """
+        """Opts you out of the tracking whilst this instance of bot is active. NOTE: Whilst in alpha, does not prevent
+        tracking indefinitely. """
         await ctx.message.delete()
         accomplished = update_blacklist(name, True)
         if accomplished:
@@ -289,17 +264,6 @@ if __name__ == "__main__":
         elapsed = datetime.datetime.now() - loadedTime
         await ctx.send("Bot has been active for: {0} days, {1} hours, and {2} minutes.".format(
             str(elapsed.days), str(round(elapsed.seconds / 3600)), str(round(elapsed.seconds / 60))))
-
-
-    @bot.command()
-    @has_permissions(manage_messages=True)
-    async def stop(ctx):
-        """Stops the bot tracking, if you have the right."""
-        global servers
-        await ctx.send("Stopping", delete_after=2)
-        await ctx.message.delete()
-        content = await get_json("servers.json")
-        await set_json("servers.json", servers)
 
 
     @bot.command()
