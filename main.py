@@ -74,6 +74,10 @@ if __name__ == "__main__":
 
         clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
 
+        if message is None:
+            channel = bot.get_channel(channel_id)
+            message = await channel.fetch_message(int(message_id))
+
         try:
             while servers[guild_id][channel_id][message_id][0]:
                 clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
@@ -113,14 +117,19 @@ if __name__ == "__main__":
                     clanembed.add_field(name="Unable to get data from Zed's API, or bot has been reset!",
                                         value="Please contact RaspiBox for assistance.")
                     await message.edit(embed=clanembed)
+                    servers[guild_id][channel_id][message_id][0] = False
+                    await set_json("servers.json", servers)
                     return
         except KeyError:
             clanembed.colour = discord.Colour.red()
-            clanembed.add_field(name="Bot has been reset!", value="Please contact RaspiBox for assistance.")
+            clanembed.add_field(name="Bot has been reset!", value="Please contact RaspiBox for assistance, or delete "
+                                                                  "this message if intentionally stopped.")
             await message.edit(embed=clanembed)
             return
 
-        await message.delete()
+        clanembed = discord.Embed(title="Tracking has stopped!", colour=discord.Colour.gold())
+        clanembed.add_field(name="Tracking temporarily halted...", value="Contact server admins to resume tracking.")
+        await message.edit(embed=clanembed)
         return
 
 
@@ -141,7 +150,9 @@ if __name__ == "__main__":
             for server in content:
                 for channel in content[str(server)]:
                     for message in content[server][channel]:
-                        servers[int(server)] = {int(channel): {int(message): [content[server][channel][message]]}}
+                        servers[int(server)] = {int(channel): {int(message): content[server][channel][message]}}
+                        if content[server][channel][message][0]:
+                            await update(int(server), int(channel), int(message))
             print("Found server list...\n")
         except FileNotFoundError:
             f = open("servers.json", "a")
@@ -168,22 +179,61 @@ if __name__ == "__main__":
             message = await ctx.send("Please wait...")
 
             try:
-                servers[ctx.message.guild.id][ctx.message.channel.id][ctx.message.id] = [True, clan_names]
+                servers[ctx.message.guild.id][ctx.message.channel.id][message.id] = [True, clan_names]
             except KeyError:
                 try:
-                    servers[ctx.message.guild.id][ctx.message.channel.id] = {ctx.message.id: [True, clan_names]}
+                    servers[ctx.message.guild.id][ctx.message.channel.id] = {message.id: [True, clan_names]}
                 except KeyError:
-                    servers[ctx.message.guild.id] = {ctx.message.channel.id: {ctx.message.id: [True, clan_names]}}
+                    servers[ctx.message.guild.id] = {ctx.message.channel.id: {message.id: [True, clan_names]}}
 
             await set_json("servers.json", servers)
-            client.loop.create_task(update(ctx.message.guild.id, ctx.message.channel.id, ctx.message.id, message))
+            client.loop.create_task(update(ctx.message.guild.id, ctx.message.channel.id, message.id))
         else:
             await ctx.send("Sorry, but you must input a clan name to be tracked!", delete_after=5)
 
 
     @bot.command()
     @has_permissions(manage_messages=True)
-    async def stop(ctx):
+    async def pause(ctx):
+        """Pauses the bot tracking in the current channel, if you have the right."""
+        global servers
+
+        await ctx.message.delete()
+        await ctx.send("Pausing tracking in channel...", delete_after=2)
+
+        try:
+            for message in servers[ctx.message.guild.id][ctx.message.channel.id]:
+                servers[ctx.message.guild.id][ctx.message.channel.id][message][0] = False
+        except KeyError:
+            await ctx.send("Sorry, but it looks like there aren't any clans currently being tracked in this channel!",
+                           delete_after=5)
+
+        await set_json("servers.json", servers)
+
+
+    @bot.command()
+    @has_permissions(manage_messages=True)
+    async def resume(ctx):
+        """Resumes tracking in the current channel, if you have the right."""
+        global servers
+
+        await ctx.message.delete()
+        await ctx.send("Starting tracking in channel...", delete_after=2)
+
+        try:
+            for message in servers[ctx.message.guild.id][ctx.message.channel.id]:
+                servers[ctx.message.guild.id][ctx.message.channel.id][message][0] = True
+                await update(ctx.message.guild.id, ctx.message.channel.id, message)
+        except KeyError:
+            await ctx.send("Sorry, but it looks like there aren't any clans currently being tracked in this channel!",
+                           delete_after=5)
+
+        await set_json("servers.json", servers)
+
+
+    @bot.command()
+    @has_permissions(manage_messages=True)
+    async def wipe(ctx):
         """Stops the bot tracking in the current channel, if you have the right."""
         global servers
 
@@ -192,10 +242,12 @@ if __name__ == "__main__":
 
         try:
             for message in servers[ctx.message.guild.id][ctx.message.channel.id]:
-                servers[ctx.message.guild.id][ctx.message.channel.id][message][0] = False
+                servers[ctx.message.guild.id][ctx.message.channel.id] = {}
         except KeyError:
             await ctx.send("Sorry, but it looks like there aren't any clans currently being tracked in this channel!",
                            delete_after=5)
+
+        await set_json("servers.json", servers)
 
 
     @bot.command()
@@ -301,10 +353,13 @@ if __name__ == "__main__":
 
 
     @run.error
+    @pause.error
+    @wipe.error
+    @resume.error
     @lobby.error
     @optout.error
     @optin.error
-    @stop.error
+    @ping.error
     async def permission_error(ctx, error):
         if isinstance(error, MissingPermissions):
             await ctx.send("Sorry, but you do not have the permissions to do that.", delete_after=5)
