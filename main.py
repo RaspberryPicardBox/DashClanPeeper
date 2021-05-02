@@ -96,15 +96,24 @@ if __name__ == "__main__":
                         tag_players = ""
                         non_tag_players = ""
                         for player in players:
-                            tag_players += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
+                            for tag in clan_names:
+                                if tag not in player.name:
+                                    tag_players += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
+                                else:
+                                    tag_players += "{} {} **{}**\n".format(emojis[player.team], player.tag, player.name)
                             levels.append(player.level)
                         for player in server.players:
                             if player not in players:
                                 non_tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
                                 levels.append(player.level)
                         average = round(sum(levels) / len(levels))
+                        if server.password:
+                            password = ":lock:"
+                        else:
+                            password = ":unlock:"
                         clanembed.add_field(
-                            name="{} [{}/10] *Average Level: {}*".format(server.name, len(server.players), average),
+                            name="{} [{}/10] Average Level: {}\nCurrently playing: {}"
+                                 "\nPass: {}".format(server.name, len(server.players), average, server.mode, password),
                             value="{0} {1}".format(tag_players, non_tag_players))
 
                     clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
@@ -152,7 +161,8 @@ if __name__ == "__main__":
                     for message in content[server][channel]:
                         servers[int(server)] = {int(channel): {int(message): content[server][channel][message]}}
                         if content[server][channel][message][0]:
-                            await update(int(server), int(channel), int(message))
+                            print("Running update")
+                            client.loop.create_task(update(int(server), int(channel), int(message)))
             print("Found server list...\n")
         except FileNotFoundError:
             f = open("servers.json", "a")
@@ -281,8 +291,13 @@ if __name__ == "__main__":
                         non_tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
                         levels.append(player.level)
                 average = round(sum(levels) / len(levels))
+                if server.password:
+                    password = ":lock:"
+                else:
+                    password = ":unlock:"
                 name_embed.add_field(
-                    name="{} [{}/10] *Average Level: {}*".format(server.name, len(server.players), average),
+                    name="{} [{}/10] Average Level: {}\nCurrently playing: {}\n"
+                    "Pass: {}".format(server.name, len(server.players), average, server.mode, password),
                     value="{0} {1}".format(tag_players, non_tag_players))
 
             name_embed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of "
