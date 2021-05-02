@@ -5,7 +5,8 @@ from datetime import timezone
 
 import discord
 from discord.ext import commands
-from discord.ext.commands import has_permissions, MissingPermissions, MissingRequiredArgument
+from discord.ext.commands import has_permissions, MissingPermissions, MissingRequiredArgument, PrivateMessageOnly
+from discord import NotFound
 import dash
 
 if __name__ == "__main__":
@@ -21,8 +22,8 @@ if __name__ == "__main__":
     loadedtime = 0
 
     blacklist = []
-
     servers = {}
+    friends_list = {}
 
     emojis = [" :red_square: ", " :blue_square: ", " :yellow_square: ", " :green_square: ", " :purple_square: ",
               ":orange_square: ", " :black_large_square: ", " :white_large_square: ", " :blue_circle: ",
@@ -75,8 +76,11 @@ if __name__ == "__main__":
         clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
 
         if message is None:
-            channel = bot.get_channel(channel_id)
-            message = await channel.fetch_message(int(message_id))
+            try:
+                channel = bot.get_channel(channel_id)
+                message = await channel.fetch_message(int(message_id))
+            except NotFound:
+                servers[guild_id][channel_id][message_id][0] = False
 
         try:
             while servers[guild_id][channel_id][message_id][0]:
@@ -98,9 +102,11 @@ if __name__ == "__main__":
                         for player in players:
                             for tag in clan_names:
                                 if tag not in player.name:
-                                    tag_players += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
+                                    tag_players += "{} ***{} {}***\n".format(emojis[player.team], player.tag,
+                                                                             player.name)
                                 else:
-                                    tag_players += "{} {} **{}**\n".format(emojis[player.team], player.tag, player.name)
+                                    tag_players += "{} ***{} {}***\n".format(emojis[player.team], player.tag,
+                                                                             player.name)
                             levels.append(player.level)
                         for player in server.players:
                             if player not in players:
@@ -169,6 +175,20 @@ if __name__ == "__main__":
             f.write("{}")
             f.close()
             print("Did not find server list, creating new...\n")
+        try:
+            content = await get_json("friends.json")
+            for player in content:
+                for friend in content[player]:
+                    try:
+                        friends_list[int(player)].append(friend)
+                    except KeyError:
+                        friends_list[int(player)] = [friend]
+            print("Found friends list...\n")
+        except FileNotFoundError:
+            f = open("friends.json", "a")
+            f.write("{}")
+            f.close()
+            print("Did not find friends list, creating new...\n")
         if not dash.update():
             print("WARNING: CANNOT ACCESS ZED'S API\n")
         loadedTime = datetime.datetime.now()
@@ -297,8 +317,8 @@ if __name__ == "__main__":
                     password = ":unlock:"
                 name_embed.add_field(
                     name="{} [{}/10] Average Level: {}\nCurrently playing: {}\n"
-                    "Pass: {}".format(server.name, len(server.players), average, server.mode, password),
-                    value="{0} {1}".format(tag_players, non_tag_players))
+                         "Pass: {}".format(server.name, len(server.players), average, server.mode, password),
+                    value="***{0}*** {1}".format(tag_players, non_tag_players))
 
             name_embed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of "
                                        "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
@@ -308,6 +328,90 @@ if __name__ == "__main__":
             name_embed.add_field(name="Unable to get data from Zed's API!", value="Please contact RaspiBox for "
                                                                                   "assistance.")
             await message.edit(embed=name_embed)
+
+
+    @bot.command()
+    @commands.dm_only()
+    async def add_friend(ctx, name):
+        """Adds a friend to your friends notification list."""
+        await ctx.send("Adding {} to your friends list!\nUse !friends to see your updated friends list.".format(name),
+                       delete_after=5)
+        try:
+            if name not in friends_list[ctx.author.id]:
+                friends_list[ctx.author.id].append(name)
+        except KeyError:
+            friends_list[ctx.author.id] = [name]
+        await set_json("friends.json", friends_list)
+
+
+    @bot.command()
+    @commands.dm_only()
+    async def del_friend(ctx, name):
+        """Removes a friend to your friends notification list."""
+        await ctx.send(
+            "Removing {} from your friends list!\nUse !friends to see your updated friends list.".format(name)
+            , delete_after=5)
+        friends_list[ctx.author.id].remove(name)
+        await set_json("friends.json", friends_list)
+
+
+    @bot.command()
+    @commands.dm_only()
+    async def wipe_friends(ctx, confirm=None):
+        """Wipes all friends from your friends notification list."""
+        if not confirm:
+            await ctx.send("Using this command will wipe your friends list!\nAre you sure you wish to continue?")
+            await ctx.send("To confirm, resend command with 'yes' after the command. E.G: !wipe_friends yes ")
+        elif confirm.lower() == "yes":
+            await ctx.send("Confirmed... Wiping friends list!")
+            friends_list[ctx.author.id] = []
+
+        await set_json("friends.json", friends_list)
+
+
+    @bot.command()
+    @commands.dm_only()
+    async def friends(ctx):
+        """Shows your friends notification list."""
+        if len(friends_list[ctx.author.id]) > 0:
+            message = await ctx.send("Please wait...")
+            friend_embed = discord.Embed(title="Friends:", colour=discord.Colour.gold())
+            online_servers = []
+            online_players = []
+
+            for friend in friends_list[ctx.author.id]:
+                current = dash.get_server_player_by_name(friend)
+                for server in current:
+                    online_servers.append(server)
+                    for player in server.players:
+                        if friend.lower() in player.name.lower():
+                            online_players.append(friend.lower())
+
+            for friend in friends_list[ctx.author.id]:
+                if friend.lower() not in online_players:
+                    friend_embed.add_field(name="*Offline*", value=friend, inline=False)
+
+            for server in online_servers:
+                online_servers.remove(server)
+                friends_string = ""
+                levels = []
+                if server.password:
+                    password = ":lock:"
+                else:
+                    password = ":unlock:"
+                for player in server.players:
+                    levels.append(player.level)
+                    for friend in friends_list[ctx.author.id]:
+                        if friend.lower() in player.name.lower():
+                            friends_string += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
+                average = round(sum(levels)/len(server.players))
+                friend_embed.add_field(name="{} [{}/10] Average Level: {}\nCurrently playing: {}\n"
+                                       "Pass: {}".format(server.name, len(server.players), average, server.mode, password),
+                                       value=friends_string)
+
+            await message.edit(content="", embed=friend_embed)
+        else:
+            await ctx.send("You currently don't have any friends! Use !add_friend [name] to add some.")
 
 
     @bot.command()
@@ -361,6 +465,7 @@ if __name__ == "__main__":
             blacklist = []
             await set_json("blacklist_global.json", [])
             await set_json("servers.json", {})
+            await set_json("friends.json", {})
             await ctx.send("Resetting entire bot logs!", delete_after=2)
             await ctx.message.delete()
         else:
@@ -372,14 +477,21 @@ if __name__ == "__main__":
     @wipe.error
     @resume.error
     @lobby.error
+    @add_friend.error
+    @del_friend.error
+    @wipe_friends.error
+    @friends.error
     @optout.error
     @optin.error
     @ping.error
     async def permission_error(ctx, error):
         if isinstance(error, MissingPermissions):
             await ctx.send("Sorry, but you do not have the permissions to do that.", delete_after=5)
-        elif isinstance(error, MissingRequiredArgument):
+        if isinstance(error, MissingRequiredArgument):
             await ctx.send("You have neglected to add in an argument after the command. Please use !help.",
+                           delete_after=5)
+        if isinstance(error, PrivateMessageOnly):
+            await ctx.send("Sorry, this command can be used in DMs only. Please use !help.",
                            delete_after=5)
 
 
