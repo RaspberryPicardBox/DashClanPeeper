@@ -31,7 +31,6 @@ class Server:
     zone = ""
     version = ""
     mode = ""
-    map = ""
     mutators = []
     password = False
     levelLock = {}
@@ -120,6 +119,21 @@ def get_server_player_by_tag(tags):
                     current[server] = current[server] + [player]
                 except KeyError:
                     current[server] = [player]
+            for tag in _tags:
+                if tag in player.name.lower()[3:] or tag in player.name.lower()[:-3]:
+                    try:
+                        current[server] = current[server] + [player]
+                    except KeyError:
+                        current[server] = [player]
+            try:
+                flag = False
+                for player in current[server]:
+                    if player == player.name:
+                        flag = True
+                        if flag:
+                            current[server].remove(player)
+            except KeyError:
+                pass
     return current
 
 
