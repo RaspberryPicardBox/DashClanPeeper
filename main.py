@@ -1,6 +1,8 @@
 import asyncio
 import datetime
 import json
+import sys
+import logging
 from datetime import timezone
 
 import discord
@@ -8,6 +10,26 @@ from discord.ext import commands
 from discord.ext.commands import has_permissions, MissingPermissions, MissingRequiredArgument, PrivateMessageOnly
 from discord import NotFound
 import dash
+
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler(stream=sys.stdout)
+logger.addHandler(handler)
+logging.basicConfig(filename="dashPeepLogs.log")
+
+log = open("dashPeepLogs.log", "a")
+log.truncate(0)
+log.close()
+
+
+def handle_exception(exc_type, exc_value, exc_traceback):  # Thanks to Dennis Golomazov on Stack Overflow
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+
+    logger.error("{} Uncaught exception".format(datetime.datetime.now()), exc_info=(exc_type, exc_value, exc_traceback))
+
+
+sys.excepthook = handle_exception
 
 if __name__ == "__main__":
     description = "Dash Clan Peeper"
@@ -20,10 +42,12 @@ if __name__ == "__main__":
     client = discord.Client()
 
     loadedtime = 0
+    tasks = []
 
     blacklist = []
     servers = {}
     friends_list = {}
+    mute_list = {}
 
     emojis = [" :red_square: ", " :blue_square: ", " :yellow_square: ", " :green_square: ", " :purple_square: ",
               ":orange_square: ", " :black_large_square: ", " :white_large_square: ", " :blue_circle: ",
@@ -102,15 +126,16 @@ if __name__ == "__main__":
                         for player in players:
                             for tag in clan_names:
                                 if tag not in player.name:
-                                    tag_players += "{} ***{} {}***\n".format(emojis[player.team], player.tag,
-                                                                             player.name)
+                                    tag_players += "{} ***{} {}*** [{}]\n".format(emojis[player.team], player.tag,
+                                                                                  player.name, player.level)
                                 else:
-                                    tag_players += "{} ***{} {}***\n".format(emojis[player.team], player.tag,
-                                                                             player.name)
+                                    tag_players += "{} ***{} {}*** [{}]\n".format(emojis[player.team], player.tag,
+                                                                                  player.name, player.level)
                             levels.append(player.level)
                         for player in server.players:
                             if player not in players:
-                                non_tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
+                                non_tag_players += "{} {} {} [{}]\n" \
+                                    .format(emojis[player.team], player.tag, player.name, player.level)
                                 levels.append(player.level)
                         average = round(sum(levels) / len(levels))
                         if server.password:
@@ -148,10 +173,51 @@ if __name__ == "__main__":
         return
 
 
+    async def friends_update(user_id):
+        global mute_list
+        cont = True
+        online_now = []
+        user = await bot.fetch_user(user_id)
+        try:
+            muted = mute_list[user_id]
+        except KeyError:
+            mute_list[user_id] = 0
+        try:
+            track = friends_list[user_id]
+            names = [name.lower() for name in track]
+            while len(friends_list[user_id]) > 0:
+                if mute_list[user_id] == 0:
+                    for friend in track:
+                        online = dash.get_server_player_by_name(friend)
+                        if friend not in online_now and len(online) > 0:
+                            online_now.append(friend)
+                            for server in online:
+                                send_embed = discord.Embed(title="{} is online now in {}!".format(friend, server.name),
+                                                           description="Use !lobby {} to get more info, or !mute [number] to mute notifications for a certain amount of hours.".format(
+                                                               friend))
+                                await user.send(embed=send_embed)
+                        else:
+                            if len(online) == 0:
+                                if friend in online_now:
+                                    online_now.remove(friend)
+                else:
+                    if (mute_list[user_id] - 30) > 0:
+                        mute_list[user_id] -= 30
+                    else:
+                        mute_list[user_id] = 0
+                await asyncio.sleep(30)
+            cont = False
+        except KeyError:
+            print("KEY ERROR")
+            cont = False
+        return
+
+
     @bot.event
     async def on_ready():
         global loadedTime
         global servers
+        global tasks
         try:
             await get_json("blacklist_global.json")
             print("Found blacklist...\n")
@@ -167,8 +233,9 @@ if __name__ == "__main__":
                     for message in content[server][channel]:
                         servers[int(server)] = {int(channel): {int(message): content[server][channel][message]}}
                         if content[server][channel][message][0]:
-                            print("Running update")
-                            client.loop.create_task(update(int(server), int(channel), int(message)))
+                            print("Running update {}".format(message))
+                            client.loop.create_task(update(int(server), int(channel), int(message))) \
+                                .set_name("Update{}".format(message))
             print("Found server list...\n")
         except FileNotFoundError:
             f = open("servers.json", "a")
@@ -183,6 +250,7 @@ if __name__ == "__main__":
                         friends_list[int(player)].append(friend)
                     except KeyError:
                         friends_list[int(player)] = [friend]
+                client.loop.create_task(friends_update(int(player)))
             print("Found friends list...\n")
         except FileNotFoundError:
             f = open("friends.json", "a")
@@ -217,7 +285,8 @@ if __name__ == "__main__":
                     servers[ctx.message.guild.id] = {ctx.message.channel.id: {message.id: [True, clan_names]}}
 
             await set_json("servers.json", servers)
-            client.loop.create_task(update(ctx.message.guild.id, ctx.message.channel.id, message.id))
+            client.loop.create_task(update(ctx.message.guild.id, ctx.message.channel.id, message.id)) \
+                .set_name("Update{}".format(message))
         else:
             await ctx.send("Sorry, but you must input a clan name to be tracked!", delete_after=5)
 
@@ -304,7 +373,7 @@ if __name__ == "__main__":
                 tag_players = ""
                 non_tag_players = ""
                 for player in players:
-                    tag_players += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
+                    tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
                     levels.append(player.level)
                 for player in server.players:
                     if player not in players:
@@ -341,6 +410,9 @@ if __name__ == "__main__":
                 friends_list[ctx.author.id].append(name)
         except KeyError:
             friends_list[ctx.author.id] = [name]
+
+        if len(friends_list[ctx.author.id]) < 2:
+            client.loop.create_task(friends_update(ctx.author.id))
         await set_json("friends.json", friends_list)
 
 
@@ -403,15 +475,26 @@ if __name__ == "__main__":
                     levels.append(player.level)
                     for friend in friends_list[ctx.author.id]:
                         if friend.lower() in player.name.lower():
-                            friends_string += "{} ***{}*** {}\n".format(emojis[player.team], player.tag, player.name)
-                average = round(sum(levels)/len(server.players))
+                            friends_string += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
+                average = round(sum(levels) / len(server.players))
                 friend_embed.add_field(name="{} [{}/10] Average Level: {}\nCurrently playing: {}\n"
-                                       "Pass: {}".format(server.name, len(server.players), average, server.mode, password),
+                                            "Pass: {}".format(server.name, len(server.players), average, server.mode,
+                                                              password),
                                        value=friends_string)
 
             await message.edit(content="", embed=friend_embed)
         else:
             await ctx.send("You currently don't have any friends! Use !add_friend [name] to add some.")
+
+
+    @bot.command()
+    @commands.dm_only()
+    async def mute(ctx, hours: float):
+        """Mutes the friend notifications for the number of hours provided!"""
+        global mute_list
+        await ctx.send("Muting friends notifications for {} hours!".format(hours))
+        mute_list[ctx.author.id] = hours*3600
+        print(mute_list[ctx.author.id])
 
 
     @bot.command()
@@ -438,6 +521,16 @@ if __name__ == "__main__":
         else:
             await ctx.send("Something went wrong when trying to remove {0} from the blacklist.".format(name),
                            delete_after=5)
+
+
+    @bot.command()
+    async def server_links(ctx):
+        """Links to other cool servers!"""
+        server_embed = discord.Embed(title="Recommended Servers: ",
+                                     description="Have a look at these places for Hyper Dash content.")
+        server_embed.add_field(name="DARK:", value="https://discord.gg/3kUGE7NWnj", inline=False)
+        server_embed.add_field(name="VGAN:", value="https://discord.gg/bkzRYw58U2", inline=False)
+        await ctx.send(embed=server_embed)
 
 
     @bot.command()
@@ -472,6 +565,31 @@ if __name__ == "__main__":
             await ctx.send("Sorry, but you don't have the privileges to do that!")
 
 
+    @bot.command()
+    async def resume_all(ctx):
+        """Resumes tracking in the every channel the bot is in, in every server, if you have the right."""
+        if ctx.author.id == 344911466195058699:
+            global servers
+
+            await ctx.message.delete()
+            await ctx.send("Resuming all tracking...", delete_after=2)
+
+            try:
+                for server in servers:
+                    for channel in servers[server]:
+                        for message in servers[server][channel]:
+                            if servers[server][channel][message][0]:
+                                await update(ctx.message.guild.id, ctx.message.channel.id, message)
+            except KeyError:
+                await ctx.send(
+                    "Sorry, but it looks like there aren't any clans currently being tracked in this channel!",
+                    delete_after=5)
+
+            await set_json("servers.json", servers)
+        else:
+            await ctx.send("Sorry, but you don't have the privileges to do that!")
+
+
     @run.error
     @pause.error
     @wipe.error
@@ -481,6 +599,7 @@ if __name__ == "__main__":
     @del_friend.error
     @wipe_friends.error
     @friends.error
+    @mute.error
     @optout.error
     @optin.error
     @ping.error
