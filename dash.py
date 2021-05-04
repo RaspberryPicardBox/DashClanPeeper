@@ -114,13 +114,13 @@ def get_server_player_by_tag(tags):
     current = {}
     for server in servers:
         for player in server.players:
-            if player.tag.lower() in _tags:
+            if player.tag.lower() in _tags and player.tag.lower() != "":
                 try:
                     current[server] = current[server] + [player]
                 except KeyError:
                     current[server] = [player]
             for tag in _tags:
-                if tag in player.name.lower()[3:] or tag in player.name.lower()[:-3]:
+                if tag in player.name.lower()[0:len(tag)] or tag in player.name.lower()[-len(tag):]:
                     try:
                         current[server] = current[server] + [player]
                     except KeyError:
