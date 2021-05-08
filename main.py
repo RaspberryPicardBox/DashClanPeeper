@@ -509,7 +509,6 @@ if __name__ == "__main__":
         global mute_list
         await ctx.send("Muting friends notifications for {} hours!".format(hours))
         mute_list[ctx.author.id] = hours*3600
-        print(mute_list[ctx.author.id])
 
 
     @bot.command()
