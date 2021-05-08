@@ -10,6 +10,7 @@ from discord.ext import commands
 from discord.ext.commands import has_permissions, MissingPermissions, MissingRequiredArgument, PrivateMessageOnly
 from discord import NotFound
 import dash
+from aiohttp import ServerConnectionError
 
 logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(stream=sys.stdout)
@@ -40,6 +41,8 @@ if __name__ == "__main__":
 
     bot = commands.Bot(command_prefix="!", description=description, intents=intents)
     client = discord.Client()
+
+    session: object
 
     loadedtime = 0
     tasks = []
@@ -90,7 +93,10 @@ if __name__ == "__main__":
         cont = True
         current_tags = []
 
-        clan_names = servers[guild_id][channel_id][message_id][1]
+        try:
+            clan_names = servers[guild_id][channel_id][message_id][1]
+        except KeyError:
+            return
 
         clan_names = [clan.lower() for clan in clan_names]
         clanprint = ""
@@ -111,7 +117,7 @@ if __name__ == "__main__":
                 clanembed = discord.Embed(title="Filtering by{}".format(clanprint))
 
                 try:
-                    current_tags = dash.get_server_player_by_tag(clan_names)
+                    current_tags = await dash.get_server_player_by_tag(session, clan_names)
                     clanembed.colour = discord.Colour.blue()
                 except KeyError:
                     cont = False
@@ -124,18 +130,11 @@ if __name__ == "__main__":
                         tag_players = ""
                         non_tag_players = ""
                         for player in players:
-                            for tag in clan_names:
-                                if tag not in player.name:
-                                    tag_players += "{} ***{} {}*** [{}]\n".format(emojis[player.team], player.tag,
-                                                                                  player.name, player.level)
-                                else:
-                                    tag_players += "{} ***{} {}*** [{}]\n".format(emojis[player.team], player.tag,
-                                                                                  player.name, player.level)
+                            tag_players += "{} **{} {}** *[{}]*\n".format(emojis[player.team], player.tag, player.name, player.level)
                             levels.append(player.level)
                         for player in server.players:
                             if player not in players:
-                                non_tag_players += "{} {} {} [{}]\n" \
-                                    .format(emojis[player.team], player.tag, player.name, player.level)
+                                non_tag_players += "{} {} {} *[{}]*\n".format(emojis[player.team], player.tag, player.name, player.level)
                                 levels.append(player.level)
                         average = round(sum(levels) / len(levels))
                         if server.password:
@@ -145,7 +144,7 @@ if __name__ == "__main__":
                         clanembed.add_field(
                             name="{} [{}/10] Average Level: {}\nCurrently playing: {}"
                                  "\nPass: {}".format(server.name, len(server.players), average, server.mode, password),
-                            value="{0} {1}".format(tag_players, non_tag_players))
+                            value="{0} {1}".format(tag_players, non_tag_players), inline=False)
 
                     clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
                                               "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
@@ -188,14 +187,19 @@ if __name__ == "__main__":
             while len(friends_list[user_id]) > 0:
                 if mute_list[user_id] == 0:
                     for friend in track:
-                        online = dash.get_server_player_by_name(friend)
+                        online = await dash.get_server_player_by_name(session, friend)
                         if friend not in online_now and len(online) > 0:
                             online_now.append(friend)
                             for server in online:
-                                send_embed = discord.Embed(title="{} is online now in {}!".format(friend, server.name),
-                                                           description="Use !lobby {} to get more info, or !mute [number] to mute notifications for a certain amount of hours.".format(
-                                                               friend))
-                                await user.send(embed=send_embed)
+                                if len(server.players) < 10:
+                                    send_embed = discord.Embed(title="{} is online now in {}! There are {} people "
+                                                                     "playing currently.".format(friend, server.name,
+                                                                                                 len(server.players)),
+                                                               description="Use !lobby {} to get more info, or !mute ["
+                                                                           "number] to mute notifications for a "
+                                                                           "certain amount of hours.".format(
+                                                                            friend), colour=discord.Colour.blue())
+                                    await user.send(embed=send_embed)
                         else:
                             if len(online) == 0:
                                 if friend in online_now:
@@ -218,6 +222,7 @@ if __name__ == "__main__":
         global loadedTime
         global servers
         global tasks
+        global session
         try:
             await get_json("blacklist_global.json")
             print("Found blacklist...\n")
@@ -257,8 +262,12 @@ if __name__ == "__main__":
             f.write("{}")
             f.close()
             print("Did not find friends list, creating new...\n")
-        if not dash.update():
-            print("WARNING: CANNOT ACCESS ZED'S API\n")
+        try:
+            session = await dash.get_session()
+            await dash.update(session)
+        except ServerConnectionError:
+            print("UNABLE TO CONNECT TO ZED'S API")
+            raise ServerConnectionError
         loadedTime = datetime.datetime.now()
         print("Logged in as: " + bot.user.name + " " + str(bot.user.id))
         print("Time loaded: {0}".format(str(loadedTime)[:-7]))
@@ -322,7 +331,7 @@ if __name__ == "__main__":
         try:
             for message in servers[ctx.message.guild.id][ctx.message.channel.id]:
                 servers[ctx.message.guild.id][ctx.message.channel.id][message][0] = True
-                await update(ctx.message.guild.id, ctx.message.channel.id, message)
+                client.loop.create_task(update(ctx.message.guild.id, ctx.message.channel.id, message))
         except KeyError:
             await ctx.send("Sorry, but it looks like there aren't any clans currently being tracked in this channel!",
                            delete_after=5)
@@ -341,7 +350,7 @@ if __name__ == "__main__":
 
         try:
             for message in servers[ctx.message.guild.id][ctx.message.channel.id]:
-                servers[ctx.message.guild.id][ctx.message.channel.id] = {}
+                del(servers[ctx.message.guild.id][ctx.message.channel.id])
         except KeyError:
             await ctx.send("Sorry, but it looks like there aren't any clans currently being tracked in this channel!",
                            delete_after=5)
@@ -360,7 +369,7 @@ if __name__ == "__main__":
         current_name = []
 
         try:
-            current_name = dash.get_server_player_by_name(name)
+            current_name = await dash.get_server_player_by_name(session, name)
             name_embed.colour = discord.Colour.blue()
         except KeyError:
             cont = False
@@ -401,13 +410,15 @@ if __name__ == "__main__":
 
     @bot.command()
     @commands.dm_only()
-    async def add_friend(ctx, name):
+    async def add_friend(ctx, *names):
         """Adds a friend to your friends notification list."""
-        await ctx.send("Adding {} to your friends list!\nUse !friends to see your updated friends list.".format(name),
+        await ctx.send("Adding {} to your friends list!\nUse !friends to see your updated friends list.".format(names),
                        delete_after=5)
         try:
-            if name not in friends_list[ctx.author.id]:
-                friends_list[ctx.author.id].append(name)
+            for name in names:
+                print(name)
+                if name not in friends_list[ctx.author.id]:
+                    friends_list[ctx.author.id].append(name)
         except KeyError:
             friends_list[ctx.author.id] = [name]
 
@@ -445,6 +456,10 @@ if __name__ == "__main__":
     @commands.dm_only()
     async def friends(ctx):
         """Shows your friends notification list."""
+        try:
+            len(friends_list[ctx.author.id])
+        except KeyError:
+            await ctx.send("You currently don't have any friends! Use !add_friend [name] to add some.")
         if len(friends_list[ctx.author.id]) > 0:
             message = await ctx.send("Please wait...")
             friend_embed = discord.Embed(title="Friends:", colour=discord.Colour.gold())
@@ -452,16 +467,12 @@ if __name__ == "__main__":
             online_players = []
 
             for friend in friends_list[ctx.author.id]:
-                current = dash.get_server_player_by_name(friend)
+                current = await dash.get_server_player_by_name(session, friend)
                 for server in current:
                     online_servers.append(server)
                     for player in server.players:
                         if friend.lower() in player.name.lower():
                             online_players.append(friend.lower())
-
-            for friend in friends_list[ctx.author.id]:
-                if friend.lower() not in online_players:
-                    friend_embed.add_field(name="*Offline*", value=friend, inline=False)
 
             for server in online_servers:
                 online_servers.remove(server)
@@ -482,6 +493,10 @@ if __name__ == "__main__":
                                                               password),
                                        value=friends_string)
 
+            for friend in friends_list[ctx.author.id]:
+                if friend.lower() not in online_players:
+                    friend_embed.add_field(name="*{}*".format(friend), value="{} is currently offline.".format(friend), inline=False)
+
             await message.edit(content="", embed=friend_embed)
         else:
             await ctx.send("You currently don't have any friends! Use !add_friend [name] to add some.")
@@ -495,6 +510,13 @@ if __name__ == "__main__":
         await ctx.send("Muting friends notifications for {} hours!".format(hours))
         mute_list[ctx.author.id] = hours*3600
         print(mute_list[ctx.author.id])
+
+
+    @bot.command()
+    @commands.dm_only()
+    async def quiet(ctx, *hours):
+        """Mutes the friend notifications throughout the specific quiet hours."""
+        pass
 
 
     @bot.command()
@@ -568,7 +590,7 @@ if __name__ == "__main__":
     @bot.command()
     async def resume_all(ctx):
         """Resumes tracking in the every channel the bot is in, in every server, if you have the right."""
-        if ctx.author.id == 344911466195058699:
+        if ctx.author.id == 344911466195058699 and not isinstance(ctx.channel, discord.DMChannel):
             global servers
 
             await ctx.message.delete()
@@ -581,13 +603,16 @@ if __name__ == "__main__":
                             if servers[server][channel][message][0]:
                                 await update(ctx.message.guild.id, ctx.message.channel.id, message)
             except KeyError:
-                await ctx.send(
-                    "Sorry, but it looks like there aren't any clans currently being tracked in this channel!",
-                    delete_after=5)
+                await ctx.send("Error - some messages could not be found!")
 
             await set_json("servers.json", servers)
         else:
             await ctx.send("Sorry, but you don't have the privileges to do that!")
+
+
+    @bot.command()
+    async def uwu(ctx):
+        await ctx.send("Hello Yellow, you're the only person that would use this surely!")
 
 
     @run.error
