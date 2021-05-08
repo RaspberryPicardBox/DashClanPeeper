@@ -1,6 +1,6 @@
 import requests
-
-rawList = ""
+import asyncio
+import aiohttp
 
 
 class Player:
@@ -59,44 +59,55 @@ class Server:
             self.levelLock = levelLock
 
 
-def update():
-    global rawList
-    try:
-        rawList = requests.get("https://api.dashlist.info/fetch").json()
-        return True
-    except:
-        return False
+async def get_session():
+    return aiohttp.ClientSession()
 
 
-def get_servers():
-    update()
+async def close_session(session):
+    await session.close()
+
+
+async def update(session):
+    raw_list = []
+    async with session.get("https://api.dashlist.info/fetch") as response:
+        if response.status == 200:
+            raw_list = await response.json()
+            return raw_list
+        else:
+            return False
+
+
+async def get_servers(session):
+    raw_list = await update(session)
+    if not raw_list:
+        raise KeyError
     servers = []
     try:
-        for server in rawList:
+        for server in raw_list:
             name = str(server)
-            region = rawList[server]['region']
-            zone = rawList[server]['zone']
-            version = rawList[server]['version']
-            mode = rawList[server]['mode']
-            password = rawList[server]['password']
+            region = raw_list[server]['region']
+            zone = raw_list[server]['zone']
+            version = raw_list[server]['version']
+            mode = raw_list[server]['mode']
+            password = raw_list[server]['password']
             mutators = []
             players = []
             spectators = []
             levelLock = {}
 
             if 'mutators' in server:
-                mutators = rawList[server]['mutators']
+                mutators = raw_list[server]['mutators']
 
-            if 'players' in rawList[server]:
-                for player in rawList[server]['players']:
+            if 'players' in raw_list[server]:
+                for player in raw_list[server]['players']:
                     players.append(Player(player['name'], player['tag'], player['level'], player['team']))
 
-            if 'spectators' in rawList[server]:
-                for spectator in rawList[server]['spectators']:
+            if 'spectators' in raw_list[server]:
+                for spectator in raw_list[server]['spectators']:
                     spectators.append(Spectator(spectator['name'], spectator['tag']))
 
-            if 'levelLock' in rawList[server]:
-                levelLock = rawList[server]['levelLock']
+            if 'levelLock' in raw_list[server]:
+                levelLock = raw_list[server]['levelLock']
 
             servers.append(Server(name, region, zone, version, mode, password, players, spectators, mutators, levelLock))
 
@@ -105,12 +116,14 @@ def get_servers():
         raise KeyError
 
 
-def get_server_player_by_tag(tags):
-    update()
+async def get_server_player_by_tag(session, tags: list):
+    raw_list = await update(session)
+    if not raw_list:
+        raise KeyError
     _tags = []
     for tag in tags:
         _tags.append(tag.lower())
-    servers = get_servers()
+    servers = await get_servers(session)
     current = {}
     for server in servers:
         for player in server.players:
@@ -119,28 +132,15 @@ def get_server_player_by_tag(tags):
                     current[server] = current[server] + [player]
                 except KeyError:
                     current[server] = [player]
-            for tag in _tags:
-                if tag in player.name.lower()[0:len(tag)] or tag in player.name.lower()[-len(tag):]:
-                    try:
-                        current[server] = current[server] + [player]
-                    except KeyError:
-                        current[server] = [player]
-            try:
-                flag = False
-                for player in current[server]:
-                    if player == player.name:
-                        flag = True
-                        if flag:
-                            current[server].remove(player)
-            except KeyError:
-                pass
     return current
 
 
-def get_server_player_by_name(name):
-    update()
+async def get_server_player_by_name(session, name):
+    raw_list = await update(session)
+    if not raw_list:
+        raise KeyError
     name = name.lower()
-    servers = get_servers()
+    servers = await get_servers(session)
     current = {}
     for server in servers:
         for player in server.players:
@@ -153,44 +153,35 @@ def get_server_player_by_name(name):
 
 
 if __name__ == "__main__":
-    if update():
-        print("\nCurrent list can be force updated using the update() routine. Returns True if successful, and False if "
-              "not.\n")
-        print("Current raw list can be accessed using the rawList variable\n    {}\n".format(rawList))
+    async def main():
+        session = await get_session()
 
-        print("Current players with a specific tag can be accessed using the get_server_player_by_tag() routine:")
-        tags = "bb", "dark", "wrth", "obey", "hh"
-        current_tags = get_server_player_by_tag(tags)
-        for server in current_tags:
-            levels = []
-            players = current_tags[server]
+        tags = ["dark", "zero", "bb", "fr", "uk"]
+
+        servers = await get_server_player_by_tag(session, tags)
+
+        print("\n-----CLANS-----\n")
+        for server in servers:
             print(server.name)
-            for player in players:
-                print("        "+player.tag+" "+player.name)
-                levels.append(player.level)
             for player in server.players:
-                if player not in players:
-                    print("    "+player.tag+" "+player.name)
-                    levels.append(player.level)
-            average = sum(levels)/len(levels)
-            print("Average level: {}".format(average))
-
-        print("\nCurrent players with a specific name can be accessed using the get_server_player_by_name() routine:")
-
-        current_name = get_server_player_by_name("raspibox")
-        for server in current_name:
-            levels = []
-            players = current_name[server]
-            print(server.name)
-            for player in players:
-                print("        "+player.tag+" "+player.name)
-                levels.append(player.level)
-            for player in server.players:
-                if player not in players:
-                    print("    "+player.tag+" "+player.name)
-                    levels.append(player.level)
-            average = sum(levels)/len(levels)
-            print("Average level: {}".format(average))
+                if player.tag.lower() in tags:
+                    print("    {} {}".format(player.tag, player.name))
+                else:
+                    print("{} {}".format(player.tag, player.name))
             print("\n")
-    else:
-        print("API Unavailable")
+
+        name = "Emzion"
+        names = await get_server_player_by_name(session, name)
+
+        print("\n-----NAME-----\n")
+        for server in names:
+            print(server.name)
+            for player in server.players:
+                if player.name != name:
+                    print(player.name)
+                else:
+                    print("    ", player.name)
+
+        await close_session(session)
+    loop = asyncio.new_event_loop()
+    loop.run_until_complete(main())
