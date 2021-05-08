@@ -132,6 +132,12 @@ async def get_server_player_by_tag(session, tags: list):
                     current[server] = current[server] + [player]
                 except KeyError:
                     current[server] = [player]
+            for tag in _tags:
+                if tag in player.name.lower()[0:len(tag)] and player.name.lower()[len(tag):len(tag)+1] == " " or tag in player.name.lower()[-len(tag):len(player.name)] and player.name.lower()[-len(tag)-1:len(player.name)-2] == " ":
+                    try:
+                        current[server] = current[server] + [player]
+                    except KeyError:
+                        current[server] = [player]
     return current
 
 
