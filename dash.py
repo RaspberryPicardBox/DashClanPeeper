@@ -174,6 +174,8 @@ if __name__ == "__main__":
                     print("    {} {}".format(player.tag, player.name))
                 else:
                     print("{} {}".format(player.tag, player.name))
+            if not server.password:
+                print("Password: {}".format(server.password))
             print("\n")
 
         name = "Emzion"
