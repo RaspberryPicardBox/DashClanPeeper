@@ -8,7 +8,7 @@ from datetime import timezone
 import discord
 from discord.ext import commands
 from discord.ext.commands import has_permissions, MissingPermissions, MissingRequiredArgument, PrivateMessageOnly
-from discord import NotFound
+from discord import NotFound, HTTPException
 import dash
 from aiohttp import ServerConnectionError
 
@@ -148,14 +148,19 @@ if __name__ == "__main__":
 
                     clanembed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of last "
                                               "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
-
-                    await message.edit(embed=clanembed, content=None)
+                    try:
+                        await message.edit(embed=clanembed, content=None)
+                    except HTTPException:
+                        pass
                     await asyncio.sleep(5)
 
                 else:
                     clanembed.add_field(name="Unable to get data from Zed's API, or bot has been reset!",
                                         value="Please contact RaspiBox for assistance.")
-                    await message.edit(embed=clanembed)
+                    try:
+                        await message.edit(embed=clanembed)
+                    except HTTPException:
+                        pass
                     servers[guild_id][channel_id][message_id][0] = False
                     await set_json("servers.json", servers)
                     return
@@ -163,12 +168,18 @@ if __name__ == "__main__":
             clanembed.colour = discord.Colour.red()
             clanembed.add_field(name="Bot has been reset!", value="Please contact RaspiBox for assistance, or delete "
                                                                   "this message if intentionally stopped.")
-            await message.edit(embed=clanembed)
+            try:
+                await message.edit(embed=clanembed)
+            except HTTPException:
+                pass
             return
 
         clanembed = discord.Embed(title="Tracking has stopped!", colour=discord.Colour.gold())
         clanembed.add_field(name="Tracking temporarily halted...", value="Contact server admins to resume tracking.")
-        await message.edit(embed=clanembed)
+        try:
+            await message.edit(embed=clanembed)
+        except HTTPException:
+            pass
         return
 
 
@@ -389,23 +400,28 @@ if __name__ == "__main__":
                         non_tag_players += "{} {} {}\n".format(emojis[player.team], player.tag, player.name)
                         levels.append(player.level)
                 average = round(sum(levels) / len(levels))
-                if server.password:
-                    password = ":lock:"
-                else:
+                if not server.password:
                     password = ":unlock:"
+                else:
+                    password = ":lock:"
                 name_embed.add_field(
                     name="{} [{}/10] Average Level: {}\nCurrently playing: {}\n"
                          "Pass: {}".format(server.name, len(server.players), average, server.mode, password),
-                    value="***{0}*** {1}".format(tag_players, non_tag_players))
+                    value="**{0}** {1}".format(tag_players, non_tag_players))
 
             name_embed.set_footer(text="Bot made by RaspiBox. Made possible thanks to Zed's API.\nTime of "
                                        "update: {0} UTC".format(str(datetime.datetime.now(timezone.utc))[:-13]))
-
-            await message.edit(embed=name_embed)
+            try:
+                await message.edit(embed=name_embed)
+            except HTTPException:
+                pass
         else:
             name_embed.add_field(name="Unable to get data from Zed's API!", value="Please contact RaspiBox for "
                                                                                   "assistance.")
-            await message.edit(embed=name_embed)
+            try:
+                await message.edit(embed=name_embed)
+            except HTTPException:
+                pass
 
 
     @bot.command()
@@ -420,7 +436,8 @@ if __name__ == "__main__":
                 if name not in friends_list[ctx.author.id]:
                     friends_list[ctx.author.id].append(name)
         except KeyError:
-            friends_list[ctx.author.id] = [name]
+            for name in names:
+                friends_list[ctx.author.id] = [name]
 
         if len(friends_list[ctx.author.id]) < 2:
             client.loop.create_task(friends_update(ctx.author.id))
@@ -478,10 +495,10 @@ if __name__ == "__main__":
                 online_servers.remove(server)
                 friends_string = ""
                 levels = []
-                if server.password:
-                    password = ":lock:"
-                else:
+                if not server.password:
                     password = ":unlock:"
+                else:
+                    password = ":lock:"
                 for player in server.players:
                     levels.append(player.level)
                     for friend in friends_list[ctx.author.id]:
@@ -496,8 +513,10 @@ if __name__ == "__main__":
             for friend in friends_list[ctx.author.id]:
                 if friend.lower() not in online_players:
                     friend_embed.add_field(name="*{}*".format(friend), value="{} is currently offline.".format(friend), inline=False)
-
-            await message.edit(content="", embed=friend_embed)
+            try:
+                await message.edit(content="", embed=friend_embed)
+            except HTTPException:
+                pass
         else:
             await ctx.send("You currently don't have any friends! Use !add_friend [name] to add some.")
 
